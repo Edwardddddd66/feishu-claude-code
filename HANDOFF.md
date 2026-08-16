@@ -103,19 +103,17 @@ tail -20 /Users/edward/Projects/lark-claudecode/logs/huapishe.log  # 期望看�
 
 ## 五、git 状态
 
-```
-On branch main
-Your branch is ahead of 'origin/main' by 2 commits.
+截至这次交接会话（含 `df3a17c` handover.py 多 bot 修复、以及 `HANDOFF.md` 自己这几次提交），
+本地 `main` 一直**没有推到远程**，都是 fast-forward，没有冲突风险。
+
+**不要信本节写死的 commit 数字**——这份文档自己每改一次就会多产生一个 commit，数字必然过期。
+准确状态永远用命令现查：
+
+```bash
+git -C /Users/edward/Projects/lark-claudecode log origin/main..HEAD --oneline
 ```
 
-```
-d7478c4 docs: 新增 HANDOFF.md 交接文档，修正 USAGE/README 里搬家后的过期路径
-df3a17c fix: handover.py 支持多 bot 自动识别端口 + 新增反方向 lark-resume.sh
-```
-
-都在本地 `main` 上，**没有推到远程**。下一个 agent 如果要推：`git push`，没有冲突风险（fast-forward）。
-（这份 HANDOFF.md 本身就是 `d7478c4` 提交的内容之一——如果你在读一个更新的版本，说明后续 commit
-又改过它，以 `git log -p HANDOFF.md` 为准，不要完全信本文档正文里的时间点。）
+要推的话直接 `git push`，无需先确认数量。
 
 ## 六、⚠️ pytest 现状：4 个预先存在的失败，跟本次改动无关
 
