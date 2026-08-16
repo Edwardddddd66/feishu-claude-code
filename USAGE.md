@@ -68,7 +68,7 @@
 
 ## 二、运维（Mac 终端）
 
-项目位置：`~/Claude/Projects/lark-claudecode`
+项目位置：`~/Projects/lark-claudecode`
 
 ```bash
 # 状态 / 进程
@@ -76,18 +76,24 @@ launchctl list | grep lark-claude
 ps aux | grep main.py | grep -v grep
 
 # 日志（排查首选）
-tail -f ~/Claude/Projects/lark-claudecode/logs/huapishe.log
-tail -f ~/Claude/Projects/lark-claudecode/logs/badminton.log
+tail -f ~/Projects/lark-claudecode/logs/huapishe.log
+tail -f ~/Projects/lark-claudecode/logs/badminton.log
 
-# 重启某个 bot（改代码 / .env 后必须重启才生效）
+# 重启某个 bot（改代码 / .env 后必须重启才生效；只改 plist 文件内容不够，
+# 必须 bootout 再 bootstrap 一次 launchd 才会真正加载新配置）
 launchctl bootout   gui/$(id -u)/com.lark-claude.huapishe
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lark-claude.huapishe.plist
-# badminton 同理替换名字
+# badminton 同理替换名字，或者直接跑 ./redeploy.sh 两个一起重启+验证
 
 # 手动前台运行（调试）
-cd ~/Claude/Projects/lark-claudecode
+cd ~/Projects/lark-claudecode
 ./start.sh huapishe          # 或 badminton
 ```
+
+> ⚠️ 项目目录如果整体挪过地方（比如从 `~/Claude/Projects/` 挪到 `~/Projects/`），至少三处要跟着改，
+> 漏一处都会导致"看起来连上了但实际调用报错"：`~/Library/LaunchAgents/com.lark-claude.<bot>.plist`
+> 里的路径、`.env.<bot>` 里的 `DEFAULT_CWD`、以及已经持久化在
+> `~/.feishu-claude/<app_id>/sessions.json` 里的 `current.cwd`。当前已知状态见 `HANDOFF.md`。
 
 两个 bot 由 launchd 守护（`KeepAlive`），崩溃会自动拉起。
 
@@ -97,8 +103,8 @@ cd ~/Claude/Projects/lark-claudecode
 
 | bot | Lark App | 回调端口 | 默认工作目录 |
 |-----|----------|---------|-------------|
-| huapishe（画皮师） | `cli_aa9159…` | 9981 | `~/Claude/Projects/manga_workflow` |
-| badminton（来一球） | `cli_aa915a…` | 9982 | `~/Claude/Projects/badminton app` |
+| huapishe（画皮师） | `cli_aa9159…` | 9981 | `~/Projects/manga_workflow` |
+| badminton（来一球） | `cli_aa915a…` | 9982 | `~/Projects/badminton_app` |
 
 > 每个 bot 经 `BOT_ENV_FILE` 加载各自的 `.env.<bot>`，互不干扰（不再共享 `.env`）。
 
@@ -133,3 +139,25 @@ cd ~/Claude/Projects/lark-claudecode
 
 在对应 `.env.<bot>` 填入 `MIMO_API_KEY`（其余 MiMo 变量见 `.env.example`，有默认值），
 重启 bot 后即可在 Lark 用 `/provider mimo` 切换。
+
+## 六、终端 ↔ 飞书 双向切换
+
+同一条 Claude Code session 可以在终端和飞书之间来回接续（底层共用同一份
+`~/.claude/projects/**/*.jsonl`），两个方向各有一条命令，`~/.zshrc` 里已经配好别名：
+
+```bash
+lark-in badminton       # 飞书 → 终端：接上 badminton 当前在聊的那条 session
+lark-in huapishe        # 同理
+
+lark-out "对话里一段独特文本"   # 终端 → 飞书：把当前终端会话推给对应的 bot
+```
+
+- `lark-in <bot>`（`lark-resume.sh`）：读该 bot 的 `sessions.json`，按 `ALLOWED_OPEN_IDS`
+  白名单找到当前 session，自动 `cd` 到记录的工作目录并 `claude --resume`，一条命令接上，
+  不用去 `sessions.json` 里翻 session_id。
+- `lark-out "文本"`（`handover.py`）：在 `~/.claude/projects/` 里搜索这段指纹文本找到当前
+  终端 session，**按 session 的 cwd 自动匹配应该通知哪个 bot**（huapishe 项目目录 → 通知
+  huapishe 的 9981，badminton 项目目录 → 通知 badminton 的 9982），不用手动指定端口；
+  匹配不到已知项目时退回默认端口，也可以 `--port <端口>` 手动指定。
+
+两个方向接的是同一条 session，谁发消息都会往同一份历史里追加，来回切不会丢上下文。

@@ -280,7 +280,9 @@ journalctl -u feishu-claude -f
 python3 handover.py "对话中的一段独特文本"
 ```
 
-脚本会在 `~/.claude/projects/` 中搜索匹配的 session，然后通知飞书 Bot 切换过去。适合电脑前调试完，出门用手机继续跟进的场景。
+脚本会在 `~/.claude/projects/` 中搜索匹配的 session，然后通知飞书 Bot 切换过去。适合电脑前调试完，出门用手机继续跟进的场景。多 bot 部署时会按 session 的工作目录自动匹配该通知哪一个 bot，无需手动指定端口。
+
+反方向（飞书 → 终端）用 `lark-resume.sh <bot>`：读出该 bot 当前在聊的 session，自动 `cd` 到对应工作目录并 `claude --resume` 接上，方便电脑前接着刚才在手机上聊的内容继续。两个方向接的是同一条 session，来回切不丢上下文。多 bot 部署的具体路径/端口对照见 USAGE.md。
 
 ---
 
