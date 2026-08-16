@@ -105,13 +105,53 @@ tail -20 /Users/edward/Projects/lark-claudecode/logs/huapishe.log  # 期望看�
 
 ```
 On branch main
-Your branch is ahead of 'origin/main' by 1 commit.
+Your branch is ahead of 'origin/main' by 2 commits.
 ```
 
-commit `df3a17c`（handover.py 多 bot 修复 + 新增 lark-resume.sh）在本地 `main` 上，**没有推到远程**。
-下一个 agent 如果要推：`git push`，没有冲突风险（fast-forward）。
+```
+d7478c4 docs: 新增 HANDOFF.md 交接文档，修正 USAGE/README 里搬家后的过期路径
+df3a17c fix: handover.py 支持多 bot 自动识别端口 + 新增反方向 lark-resume.sh
+```
 
-## 六、关键文件地图（快速定位用）
+都在本地 `main` 上，**没有推到远程**。下一个 agent 如果要推：`git push`，没有冲突风险（fast-forward）。
+（这份 HANDOFF.md 本身就是 `d7478c4` 提交的内容之一——如果你在读一个更新的版本，说明后续 commit
+又改过它，以 `git log -p HANDOFF.md` 为准，不要完全信本文档正文里的时间点。）
+
+## 六、⚠️ pytest 现状：4 个预先存在的失败，跟本次改动无关
+
+跑 `.venv/bin/python -m pytest -q`（注意不是裸 `pytest`，见下方"环境坑"）目前是 **56 passed, 4 failed**：
+
+```
+FAILED tests/test_concurrent_groups.py::test_concurrent_messages_different_groups
+FAILED tests/test_concurrent_groups.py::test_same_group_messages_serialized
+FAILED tests/test_integration.py::test_private_chat_streaming_updates_card
+FAILED tests/test_integration.py::test_chat_locks_cleanup
+```
+
+**已确认这 4 个失败在这次会话开始之前（`ab2c350`，本次最早的一个 commit）就存在**，用
+`git checkout ab2c350 -- . && pytest ...` 复现过，不是本次改动引入的回归，接手时不用怀疑是不是自己
+哪里改错了。各自的直接原因（没深挖到根治方案，只是定位到了触发点，留给下一个 agent 决定要不要修）：
+
+- `test_concurrent_groups.py` 两个：`TypeError: 'Mock' object is not iterable`，`main.py:236`
+  （`getattr(msg, 'mentions', None) or []`）——测试里的 `Mock()` 没显式配置 `mentions` 属性，
+  Mock 对象本身是 truthy 所以 `or []` 不生效，走到 `for m in mentions` 时炸了。测试 mock 没配全，
+  不是业务逻辑的锅。
+- `test_private_chat_streaming_updates_card`：`assert 2 >= 3` 失败——这个测试断言"流式长文本至少
+  推送 3 次中间更新"，依赖 `STREAM_PUSH_INTERVAL` 时间窗口和 mock 的 CPU 调度节奏，看起来是个
+  时序敏感的 flaky 测试，不同机器/负载下次数会飘。
+- `test_chat_locks_cleanup`：`assert 101 <= 2` 失败——测试预期锁超过上限后清理到 ≤2 个，但
+  `main.py` 的清理逻辑（`_chat_locks` 那段）实际写的是"只清理一半的 idle 锁"（`idle[:len(idle)//2]`），
+  跟测试断言的"清到只剩 ≤2 个"本来就对不上，这个像是**测试断言和实现意图不一致**，需要有人拍板
+  到底哪个是对的（是该改实现变成"清空所有 idle 锁"，还是改测试断言匹配"只清一半"的设计）。
+
+**环境坑**：这台机器上裸 `pytest` 命令不在 PATH 里（`pytest not found`），必须用
+`.venv/bin/python -m pytest`，跟 `start.sh` 里跑 bot 用的是同一个解释器。
+
+**本次新增的 `handover.py`/`lark-resume.sh` 改动没有任何自动化测试覆盖**——这次只做了手动实测
+验证（见第四节第 4、5 点），如果要长期维护这两个脚本，建议给它们也补测试用例（`handover.py` 的
+`_read_cwd`/`_discover_bots`/`_pick_port` 都是纯函数，很好测）。
+
+## 七、关键文件地图（快速定位用）
 
 | 文件 | 作用 |
 |---|---|
@@ -128,7 +168,7 @@ commit `df3a17c`（handover.py 多 bot 修复 + 新增 lark-resume.sh）在本�
 | `redeploy.sh` | 一键重启两个 bot + 验证连接，**不会**修 `.env` 里的路径 |
 | `~/.feishu-claude/<app_id>/sessions.json` | 运行时状态（session_id/cwd/model 等），不在仓库里 |
 
-## 七、这次踩出来的经验教训（给下一个 agent 的通用提醒）
+## 八、这次踩出来的经验教训（给下一个 agent 的通用提醒）
 
 1. **项目目录搬家是个连锁坑**：不只 launchd plist 要改，`.env.*` 里的 `DEFAULT_CWD`、已经持久化在
    `~/.feishu-claude/**/sessions.json` 里的 `current.cwd` 都要跟着改，三处任何一处漏改都会导致"表面上
@@ -142,7 +182,7 @@ commit `df3a17c`（handover.py 多 bot 修复 + 新增 lark-resume.sh）在本�
    编码进文件名/目录名的地方，只要编码规则不是完全可逆的（比如把多种字符都映射成同一个 `-`），反推
    就会出错。有真实字段可读的时候（这里是 `.jsonl` 里的 `cwd`）优先读字段，不要反推。
 
-## 八、验证命令合集（下一个 agent 直接抄用）
+## 九、验证命令合集（下一个 agent 直接抄用）
 
 ```bash
 # 两个 bot 的 launchd 状态
@@ -167,4 +207,7 @@ print(json.dumps(d, indent=2, ensure_ascii=False))
 
 # git 是否还有未推送的 commit
 git -C /Users/edward/Projects/lark-claudecode log origin/main..HEAD --oneline
+
+# 跑测试（注意不能用裸 pytest，PATH 里没有）
+cd /Users/edward/Projects/lark-claudecode && .venv/bin/python -m pytest -q
 ```
